@@ -10,6 +10,7 @@
 
 #### Installing and loading required packages ####
 ## Installation
+options("install.lock"=FALSE)
 # install.packages('tidyverse')
 # install.packages('dplyr')
 # install.packages('tidygraph')
@@ -215,4 +216,134 @@ plot(net.bg, layout=l)
 
 dev.off() # stops plotting to the panel
 
+## Scaling
+# igraph plots are set to fill the x,y axis (-1,1) be default. This can be changed with rescale=FALSE
+l <- layout_with_fr(net.bg)
+l <- norm_coords(l, ymin = -1, ymax = 1, xmin = -1, xmax = 1)
 
+par(mfrow = c(2,2), mar = c(0,0,0,0))
+plot(net.bg, rescale = FALSE, layout = l*0.4)
+plot(net.bg, rescale = FALSE, layout = l*0.6)
+plot(net.bg, rescale = FALSE, layout = l*0.8)
+plot(net.bg, rescale = FALSE, layout = l*1.0)
+dev.off()
+
+# Apparently they can be 3d too by setting dim to 4... needs x,y,z coords but not sure how that works.
+l <- layout_with_fr(net.bg, dim = 3)
+plot(net.bg, layout = l)
+
+# Another force-directed layout, Kamada Kawai
+l <- layout_with_kk(net.bg)
+plot(net.bg, layout = l)
+
+# Graphopt is force directed with some handy cusomtisations
+l <- layout_with_graphopt(net.bg)
+plot(net.bg, layout = l)
+
+# Can change the charge of nodes and spring of edges
+# l1 has stronger charge compared to l2
+# also use mass, spring.length, and spring.constant to alter graph
+l1 <- layout_with_graphopt(net.bg, charge = 0.2)
+l2 <- layout_with_graphopt(net.bg, charge = 0.000001)
+par(mfrow = c(1,2), mar=c(1,1,1,1))
+plot(net.bg, layout = l1)
+plot(net.bg, layout = l2)
+dev.off()
+
+# LGL is a layout intended for very large sets, and can specify a central node
+plot(net.bg, layout = layout_with_lgl)
+
+# MDS tries to place nodes based on some quality. By defaul it is by shortest path, but can be weighted with param "dist"
+plot(net.bg, layout = layout_with_mds)
+
+## Looking at all available igraph layouts
+# This first command makes a vector by pulling out only the layout_ layouts form the igraph package.
+layouts <- grep("^layout_", ls("package:igraph"), value = TRUE) [-1]
+# And this removes those that don't apply to the net.bg object. No idea how it works exactly
+layouts <- layouts[!grepl("bipartite|merge|norm|sugiyama|tree", layouts)]
+
+par(mfrow=c(5,3), mar=c(1,1,1,1))
+for (layout in layouts) {
+        print(layout)
+        l <- do.call(layout, list(net))
+        plot(net,edge.arrow.mode=0, layout=l, main=layout)
+}
+# Pretty cool loop to plot!
+dev.off()
+
+#### Highlighting parts of the network ####
+## With complex networks it is necessary to look beyond size and weight. It might be necessary to break the network down
+# Can sparisfy by keeping only some parts of the network - the bits that matter
+hist(links$weight)
+mean(links$weight)
+sd(links$weight)
+
+# Using stats such the above, can delete edges to show anything above or below
+cut.off <- mean(links$weight)
+net.sp <- delete.edges(net, E(net)[weight<cut.off]) # new object with edges with weight less than mean deleted
+plot(net.sp, layout = layout_with_kk)
+
+## highlighting rather than excluding
+par(mfrow=c(1,2))
+clp <- cluster_optimal(net) #using cluster command to detect communities
+class(clp) # It creates a communities object which igraph understands how to plot
+plot(clp, net)
+
+# Or plot them by making a new communities field in the igraph object itself
+V(net)$community <- clp$membership
+colrs <- adjustcolor( c("gray50", "tomato", "gold", "yellowgreen"), alpha=.6)
+plot(net, vertex.color=colrs[V(net)$community])
+
+dev.off()
+
+#### Highlights specific nodes ####
+## For example could, highlight nodes based on their distance from a particular type of node.
+# The distance function reduces a matrix of shortest paths
+dist.from.NYT <- distances(net, v=V(net)[media=="NY Times"], to=V(net), weights = NA)
+oranges <- colorRampPalette(c("dark red", "gold"))
+col <- oranges(max(dist.from.NYT)+1)
+col <- col[dist.from.NYT+1]
+
+plot(net, vertex.color = col, vertex.label=dist.from.NYT, edge.arrow.size = 0.6, vertex.label.color = "white")
+
+## Highlight specific paths in the network ##
+news.path <- shortest_paths(net, from = V(net)[media=="MSNBC"],
+                            to = V(net)[media=="New York Post"],
+                            output = "both") # both path nodes and edges
+
+# This sets the others to gray the makes the select path to the orange
+ecol <- rep("gray80", ecount(net))
+ecol[unlist(news.path$epath)] <- "orange"
+# This creates a variable to differentiate by the width of the edge too
+ew <- rep(2, ecount(net))
+ew[unlist(news.path$epath)] <- 4
+# set a node color variable for the different path too
+vcol <- rep("gray40", vcount(net))
+vcol[unlist(news.path$vpath)] <- "gold"
+
+plot(net, vertex.color = vcol, edge.color = ecol, edge.width = ew, edge.arrow.mode = 0, vertex.label=NA)
+
+## Highlight the edges that go into a particular node using incident or incident_edges for multilple nodes
+inc.edges <- incident(net, V(net)[media=="Wall Street Journal"], mode = "all")
+# Setting colours
+ecol <- rep("gray80", ecount(net))
+ecol[inc.edges] <- "orange"
+vcol <- rep("gray40", vcount(net))
+vcol[V(net)$media=="Wall Street Journal"] <- "gold"
+
+plot (net, vertex.color = vcol, edge.color = ecol, vertex.label=NA, edge.arrow.mode = 0)
+
+## Highlight immediate neighbours
+# Neighbors function find adjecent nodes. adjacent_verticies can be used instead for multiple nodes. ego function with order setting distance out
+neigh.nodes <- neighbors(net, V(net)[media=="Wall Street Journal"], mode ="out")
+# Set the colours
+vcol[neigh.nodes] <- "#ff9d00"
+plot(net, vertex.color = vcol, vertex.label=NA, edge.arrow.mode = 0)
+
+## Marking groups of nodes or communities ##
+par(mfrow=c(1,2))
+plot(net, mark.groups = c(1,2,5,8), mark.col = "#C5E5E7", mark.border = NA)
+# Marking multiple groups
+plot(net, mark.groups = list(c(1,4,5,8), c(4,15:17)), mark.col=c("#C5E5E7", "#ECD89A"), mark.border = NA)
+
+#### Interactive Plotting ####
