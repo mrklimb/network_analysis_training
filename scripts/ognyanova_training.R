@@ -23,6 +23,7 @@ options("install.lock"=FALSE)
 # install.packages("threejs")
 # install.packages("ndtv")
 # install.packages('viridis')
+# install.packages("png")
 
 ## Loading
 library(tidyverse)
@@ -37,6 +38,7 @@ library(sna)
 library(threejs)
 library(ndtv)
 library(viridis)
+library(png)
 
 #### Colours ####
 ## Katya provides some useful tips about plotting colours
@@ -347,3 +349,164 @@ plot(net, mark.groups = c(1,2,5,8), mark.col = "#C5E5E7", mark.border = NA)
 plot(net, mark.groups = list(c(1,4,5,8), c(4,15:17)), mark.col=c("#C5E5E7", "#ECD89A"), mark.border = NA)
 
 #### Interactive Plotting ####
+## This sounds really promising!
+## Can plot out an interactive graph, adjust the location of nodes, then save the adjust locations to a layout!!
+tkid <- tkplot(net) # this opens the interactive plot from igraph
+l <- tkplot.getcoords(tkid) # gets the coordinates from the previous plot
+plot(net, layout = l) # plot again using the previously described options
+
+#### Plotting a two-mode network
+## This is for the other type of network - it contains two types of nodes, for example to examine links between news sources and consumers
+head(nodes2)
+head(links2)
+# The ID contains S and U types to distinguish. The links shows a contigency matrix between these
+
+net2 # the igraph object created previously
+plot(net2, vertex.label = NA)
+
+## Can change the various details to help visualise the difference between the objects
+# Setting colours and shapes
+V(net2)$color <- c("steel blue", "orange")[V(net2)$type+1]
+V(net2)$shape <- c("square", "circle")[V(net2)$type+1]
+# Giving media outlets lables, but none for audience
+V(net2)$label <- ""
+V(net2)$label[V(net2)$type==F] <- nodes2$media[V(net2)$type==F]
+V(net2)$label.cex=0.6
+V(net2)$label.font=2
+
+plot(net2, vertex.label.color = "white", vertex.size=(2-V(net2)$type)*8)
+
+## There's a special layout for this form of network too
+plot(net2, vertex.label = NA, vertex.size=7, layout=layout.bipartite)
+
+## Plotting with nodes as labels is useful way to display this data too
+plot(net2, vertex.shape="none", vertex.label=nodes2$media, vertex.label.color=V(net2)$color,
+     vertex.label.font=2, vertex.label.cex=0.6, edge.color="gray70", edge.width=2)
+
+## Can also use images as nodes
+# needs the png package
+img.1 <- readPNG("images/news.png")
+img.2 <- readPNG("images/user.png")
+
+V(net2)$raster <- list(img.1, img.2)[V(net2)$type+1]
+
+plot(net2, vertex.shape="raster", vertex.label=NA, vertex.size=16, vertex.size2=16, edge.width=2)
+
+# Can also just add random images
+img.3 <- readPNG("images/puppy.png")
+rasterImage(img.3, xleft=-1.6, xright=-0.6, ybottom=-1.1, ytop=0.1)
+
+## Breaking out the two networks
+net2.bp <- bipartite.projection(net2)
+
+par(mfrow=c(1,2))
+plot(net2.bp$proj1, vertex.label.color="black", vertex.label.dist=1, vertex.label=nodes2$media[!is.na(nodes2$media.type)])
+plot(net2.bp$proj2, vertex.label.color="black", vertex.label.dist=1, vertex.label=nodes2$media[ is.na(nodes2$media.type)])
+dev.off()
+
+#### Plotting multiplex networks ####
+E(net)$width <- 1.5
+plot(net, edge.color=c("dark red", "slategrey")[(E(net)$type=="hyperlink")+1], vertex.color="gray40", layout=layout_in_circle, edge.curved=.3)
+
+net.m <- net - E(net)[E(net)$type=="hyperlink"] #deletes edges using minus symbol
+net.h <- net - E(net)[E(net)$type=="mention"]
+
+# Plotting separately
+par(mfrow=c(1,2))
+plot(net.h, vertex.color="orange", layout=layout_with_fr, main="Tie: Hyperlink")
+plot(net.m, vertex.color="lightsteelblue2", layout=layout_with_fr, main="Tie: Mention")
+
+# By setting a layout upfront, can lock in the same layout across both
+l <- layout_with_fr(net)
+plot(net.h, vertex.color="orange", layout=l, main="Tie: Hyperlink")
+plot(net.m, vertex.color="lightsteelblue2", layout=l, main="Tie: Mention")
+dev.off()
+
+## The above is fine when nodes are not connected by each of the types of connector. However in multigraphs this unlikely.
+# The trick here is being about the visualuse when the do. The following creates a multigraph to show how to address this
+multigtr <- graph(edges = c(1,2, 1,2, 1,2), n=2)
+l <- layout_with_kk(multigtr)
+
+# Plotting this simple graph
+plot(multigtr, vertex.color="lightsteelblue", vertex.frame.color="white",
+     vertex.size=40, vertex.shape="circle", vertex.label=NA,
+     edge.color=c("gold", "tomato", "yellowgreen"), edge.width=5, 
+     edge.arrow.size=3, edge.curved=0.1, layout=l)
+
+# To avoid this overdrawing issue, can assign different curveture to each edge. Uses the curve_multiple function to do this
+plot(multigtr, vertex.color="lightsteelblue", vert.frame.color="white",
+     edge.color=c("gold", "tomato", "yellowgreen"), edge.width=3, vertex.label=NA,
+     edge.arrow.size=2, edge.curved=curve_multiple(multigtr), layout=l)
+
+## Detaching packages
+# igraph conflicts with many other packages... turn it off when no longer needed.
+detach("package:igraph")
+
+#### Interactive Network Maps ####
+
+### Plot animations with ndtv ###
+## The animation package with ndtv allows for simple animations not only for networks.
+## For this to work it also needs imagemagick installed (https://imagemagick.org/)
+ani.options("convert") # checks if it knows where to find imagemagick
+ani.options(convert="C:/Program Files/ImageMagick-7.1.0-Q16-HDRI/convert.exe") #sets location
+
+## Generating four network plots, saving as gifs, then animating them.
+l <- layout_with_lgl(net)
+
+saveGIF( {  col <- rep("grey40", vcount(net))
+plot(net, vertex.color=col, layout=l)
+
+step.1 <- V(net)[media=="Wall Street Journal"]
+col[step.1] <- "#ff5100"
+plot(net, vertex.color=col, layout=l)
+
+step.2 <- unlist(neighborhood(net, 1, step.1, mode="out"))
+col[setdiff(step.2, step.1)] <- "#ff9d00"
+plot(net, vertex.color=col, layout=l) 
+
+step.3 <- unlist(neighborhood(net, 2, step.1, mode="out"))
+col[setdiff(step.3, step.2)] <- "#FFDD1F"
+plot(net, vertex.color=col, layout=l)  },
+interval = .4, movie.name="network_animation.gif" )
+
+# This is pretty... not sure how useful for us, also pretty confused about what the above does
+detach("package:igraph")
+detach("package:ndtv")
+
+#### Interactive visualistion with visNetwork ####
+## This uses JS outputted by the visNetwork package
+visNetwork(nodes, links, width = "100%", height = "400px",
+           background="wheat", main="Network", submain = "And what a great network it is!",
+           footer = "Hyperlinks and mentions among media sources")
+
+## Can set properties to the nodes and edges like in igraph. Following help section is useful
+?visNodes
+?visEdges
+
+# Trying a more descriptive chart
+vis.nodes <- nodes
+vis.links <- links
+
+vis.nodes$shape <- "dot"
+vis.nodes$shadow <- " TRUE" #drop shadow on nodes
+vis.nodes$title <- vis.nodes$media #label on click
+vis.nodes$label <- vis.nodes$type.label #node label
+vis.nodes$size <- vis.nodes$audience.size # node size
+vis.nodes$borderWidth <- 2 # node border width
+
+vis.nodes$color.background <- c("slategrey", "tomato", "gold")[nodes$media.type]
+vis.nodes$color.border <- "black"
+vis.nodes$color.highlight.background <- "orange"
+vis.nodes$color.highlight.border <- "darkred"
+
+visNetwork(vis.nodes, vis.links)
+
+# Updating the edges...
+vis.links$width <- 1+links$weight/8 # line width set by the weight
+vis.links$color <- "gray" #line color
+vis.links$arrows <- "middle" #arrows: "from, to or middle"
+vis.links$smooth <- FALSE # should the edges be curved
+vis.links$shadow <- FALSE # removes drop shadow
+
+visnet <- visNetwork(vis.nodes, vis.links)
+visnet
